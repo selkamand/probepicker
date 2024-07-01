@@ -69,6 +69,7 @@
 
         <Package Id='*'
             Keywords='Installer'
+            Description='Identify most variable probes in larger-than-memory methylation array datasets'
             Manufacturer='Sam El-Kamand'
             InstallerVersion='450'
             Languages='1033'
@@ -172,7 +173,7 @@
         <!--<Icon Id='ProductICO' SourceFile='wix\Product.ico'/>-->
         <!--<Property Id='ARPPRODUCTICON' Value='ProductICO' />-->
 
-        <Property Id='ARPHELPLINK' Value='https://github.com/selkamand/probepicker'/>
+        <Property Id='ARPHELPLINK' Value='https://selkamand.github.io/probepicker'/>
         
         <UI>
             <UIRef Id='WixUI_FeatureTree'/>

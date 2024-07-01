@@ -1,11 +1,13 @@
 [package]
+homepage = "https://selkamand.github.io/probepicker"
+
 name = "probepicker"
 version = "0.1.0"
 edition = "2021"
 readme = "README.md"
 repository = "https://github.com/selkamand/probepicker"
 authors = ["Sam El-Kamand <selkamand@ccia.org.au>"]
-
+description = "Identify most variable probes in larger-than-memory methylation array datasets"
 [package.metadata.wix]
 upgrade-guid = "D0C5D53F-6D8E-4C43-91E0-4742388455F2"
 path-guid = "4704AA39-F3BD-4699-A33D-D73427E7A69A"
