@@ -2,6 +2,7 @@ use clap::{command, Arg};
 use core::fmt;
 use std::io::Read;
 use std::io::{self};
+use std::io::BufRead;
 
 #[derive(Debug)]
 struct Probe {
@@ -30,88 +31,123 @@ enum InputSource {
 }
 
 fn main() {
+
+    // Argument Parsing
     let matches = command!() // requires `cargo` feature
-        .arg(Arg::new("methdata")
-            .help("A gzipped tsv with methylation data where first column has probe names, all other columns are samples. Values represent beta values")
-            .required(false)
+        .subcommand(
+            clap::Command::new("identify")
+            .about("Identify the most variable probes in a methylation dataset")
+            .arg(Arg::new("methdata")
+                .help("A gzipped tsv with methylation data where first column has probe names, all other columns are samples. Values represent beta values")
+                .required(false)
+            )
+            .arg(
+                Arg::new("delim")
+                .short('d')
+                .long("delim")
+                .default_value("\t")
+                .value_parser(clap::value_parser!(String))
+                .help("File delimiter")
+            )
+            .arg(
+                Arg::new("nprobes")
+                .short('n')
+                .long("nprobes")
+                .default_value("10")
+                .value_parser(clap::value_parser!(usize))
+                .help("How many probes should be returned")
+            )
+            .arg(
+                Arg::new("proportion")
+                .short('c')
+                .long("coverage")
+                .default_value("0.02")
+                .value_parser(clap::value_parser!(f64))
+                .help("Maximum permissible proportion of samples with non-null values before probe fails QC")
+            )
         )
-        .arg(
-            Arg::new("delim")
-            .short('d')
-            .long("delim")
-            .default_value("\t")
-            .value_parser(clap::value_parser!(String))
-            .help("File delimiter")
-        )
-        .arg(
-            Arg::new("nprobes")
-            .short('n')
-            .long("nprobes")
-            .default_value("10")
-            .value_parser(clap::value_parser!(usize))
-            .help("How many probes should be returned")
-        )
-        .arg(
-            Arg::new("proportion")
-            .short('c')
-            .long("coverage")
-            .default_value("0.02")
-            .value_parser(clap::value_parser!(f64))
-            .help("Maximum permissible proportion of samples with non-null values before probe fails QC")
+        .subcommand(
+            clap::Command::new("select")
+            .about("Subset a methylation array dataset by sample IDs")
+            .arg(Arg::new("methdata_select")
+                .help("A gzipped tsv with methylation data where first column has probe names, all other columns are samples. Must have header line")
+                .required(false)
+            )
+            .arg(
+                Arg::new("sample_file")
+                .short('s')
+                .long("samples")
+                .help("A plain text file with 1 sample identifier per line. No header")
+                .required(true)
+            )
+            .arg(
+                Arg::new("delim_select")
+                .short('d')
+                .long("delim")
+                .default_value("\t")
+                .value_parser(clap::value_parser!(String))
+                .help("File delimiter")
+            )
+            
         )
         .about("Pick the most variable probes from a methylation dataset")
         .get_matches();
 
-    let stdin_supplied = stdin_supplied();
-    let methdata_path_option = matches.get_one::<String>("methdata");
-    let methdata_arg_supplied = methdata_path_option.is_some();
 
-    let delim = matches
-        .get_one::<String>("delim")
+
+    // subcommand: SELECT
+    if let Some(matches) = matches.subcommand_matches("select") { 
+        let delim = matches
+        .get_one::<String>("delim_select")
         .expect("Valid file delimiter")
         .as_bytes()[0];
 
-    // Warn if both STDIN or methdata arg ares supplied
-    if stdin_supplied && methdata_arg_supplied {
-        panic!("Data was supplied to both STDIN and methdata positional argument. Please choose one or the other.")
+        let methdata_path_option = matches.get_one::<String>("methdata_select");
+        let sample_path = matches.get_one::<String>("sample_file").expect("Sample Path");
+
+        let reader: csv::Reader<Box<dyn Read>> = get_reader_from_stdin_or_file( methdata_path_option, delim);
+        let samples: Vec<String> = get_selected_samples(sample_path.to_string());
+        
+        print_selected_samples(reader, samples)
+     }    
+     // subcommand: IDENTIFY 
+     else if let Some(matches) = matches.subcommand_matches("identify") { 
+        let delim = matches
+            .get_one::<String>("delim")
+            .expect("Valid file delimiter")
+            .as_bytes()[0];
+
+        let methdata_path_option = matches.get_one::<String>("methdata");
+
+        let reader = get_reader_from_stdin_or_file( methdata_path_option, delim);
+        
+        // Config
+        let n_probes_to_return: usize = *matches
+            .get_one::<usize>("nprobes")
+            .expect("Failed to parse nprobes argument");
+
+        let max_proportion_missing_samples = *matches
+            .get_one::<f64>("proportion")
+            .expect("Failed to parse coverage argument");
+
+        let output_probenames_only = true;
+
+        // Identify Most Variable Probes
+        let results =
+            get_most_variable_probes(reader, n_probes_to_return, max_proportion_missing_samples);
+
+        // Print Results
+        summarise_identify_results(results, max_proportion_missing_samples, n_probes_to_return, output_probenames_only)
+    }  
+    else {
+        panic!("Please supply a valid subcommand")
     }
 
-    let inputsource: InputSource;
-    if stdin_supplied {
-        inputsource = InputSource::Stdin;
-    } else if methdata_arg_supplied {
-        let path = matches
-            .get_one::<String>("methdata")
-            .expect("Failed to parse methdata argument");
+}
 
-        inputsource = InputSource::File(path.to_string())
-    } else {
-        panic!("Must supply methdata either through stdin or methdata positional argument. See `probepicker --help` for details")
-    }
-
-    // Debug
-    eprint_hr();
-    eprintln!("Reading Data from {:#?}", inputsource);
-    // Get reader if stdin
-    let reader = get_reader(inputsource, delim);
-
-    // Config
-    let n_probes_to_return: usize = *matches
-        .get_one::<usize>("nprobes")
-        .expect("Failed to parse nprobes argument");
-
-    let max_proportion_missing_samples = *matches
-        .get_one::<f64>("proportion")
-        .expect("Failed to parse coverage argument");
-
-    let output_probenames_only = true;
-
-    // Identify Most Variable Probes
-    let results =
-        get_most_variable_probes(reader, n_probes_to_return, max_proportion_missing_samples);
-
-    // Print Out Debug Information
-    eprintln!(
+fn summarise_identify_results(results:TopProbes, max_proportion_missing_samples: f64, n_probes_to_return: usize, output_probenames_only: bool){
+     // Print Out Debug Information
+     eprintln!(
         "Looked through {} probes and {} samples",
         results.n_total_probes, results.n_samples
     );
@@ -275,4 +311,66 @@ fn get_reader(source: InputSource, delim: u8) -> csv::Reader<std::boxed::Box<dyn
 
 fn stdin_supplied() -> bool {
     !atty::is(atty::Stream::Stdin)
+}
+
+fn get_reader_from_stdin_or_file(filepath:Option<&String>, delim:u8) -> csv::Reader<std::boxed::Box<dyn std::io::Read>>{
+    let stdin_supplied = stdin_supplied();
+    let filepath_supplied = filepath.is_some();
+    
+    if stdin_supplied && filepath_supplied {
+        panic!("Data was supplied to both STDIN and methdata positional argument. Please choose one or the other.")
+    };
+
+    let inputsource: InputSource;
+    if stdin_supplied {
+        inputsource = InputSource::Stdin;
+    } else if filepath_supplied {
+        let path = filepath.expect("Failed to parse methdata argument");
+
+        inputsource = InputSource::File(path.to_string())
+    } else {
+        panic!("Must supply methdata either through stdin or methdata positional argument. See `probepicker --help` for details")
+    };
+    
+    eprint_hr();
+    eprintln!("Reading Data from {:#?}", inputsource);
+
+    // Return reader
+    get_reader(inputsource, delim)
+}
+
+fn get_selected_samples(path:String) -> Vec<String>{
+
+    let file = std::fs::File::open(path.as_str()).expect("no such file");
+    let buf = std::io::BufReader::new(file);
+
+    buf.lines()
+        .map(|l| l.expect("Could not parse line"))
+        .collect()
+}
+
+fn print_selected_samples(mut reader:csv::Reader<Box<dyn Read>>, samples:Vec<String>){
+    
+    let headers = reader.headers().expect("Failed to get headers");
+
+    let sample_indices:Vec<usize> = headers
+    .iter()
+    .enumerate()
+    .filter_map(|(i, h)| if samples.contains(&h.to_string()) { Some(i) } else { None })
+    .collect();
+
+    let colnames_in_output:Vec<&str> = headers.iter().filter(|x| samples.contains(&x.to_string())).collect();
+
+    let n_samples_found = sample_indices.len();
+    let n_samples_searched_for = samples.len();
+
+    eprintln!("{}/{} ({}%) of samples found in file",n_samples_found, n_samples_searched_for, n_samples_found as f64 / n_samples_searched_for as f64 * 100.0);
+    
+    // Print header
+    println!("{}\t{}", headers.get(0).expect("first column name"),colnames_in_output.join("\t"));
+    for result in reader.records(){
+        let record = result.expect("Failed to parse result");
+        let filtered_record: Vec<_> = sample_indices.iter().map(|&i| &record[i]).collect();
+        println!("{}\t{}", record.get(0).expect("first column"), filtered_record.join("\t"));
+    }
 }

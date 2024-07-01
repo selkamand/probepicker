@@ -23,6 +23,35 @@
             "cwd": "${workspaceFolder}"
         },
         {
+            "name": "Debug CLI: Identify",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/target/debug/probepicker",
+            "args": [
+                "identify",
+                "${workspaceFolder}/data/test_meth.tsv.gz"
+            ],
+            "cwd": "${workspaceFolder}",
+            "sourceLanguages": [
+                "rust"
+            ]
+        },
+        {
+            "name": "Debug CLI: Select",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/target/debug/probepicker",
+            "args": [
+                "select",
+                "${workspaceFolder}/data/test_meth.tsv.gz",
+                "-s ${workspaceFolder}/data/samples.txt"
+            ],
+            "cwd": "${workspaceFolder}",
+            "sourceLanguages": [
+                "rust"
+            ]
+        },
+        {
             "type": "lldb",
             "request": "launch",
             "name": "Debug unit tests in executable 'probepicker'",
