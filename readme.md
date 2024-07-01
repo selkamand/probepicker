@@ -1,7 +1,3 @@
----
-title: "Probe Picker CLI Tool"
-output: html_document
----
 
 # probepicker
 
