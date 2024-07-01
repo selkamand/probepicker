@@ -1,4 +1,5 @@
 use clap::{command, Arg};
+use csv::StringRecord;
 use core::fmt;
 use std::io::Read;
 use std::io::{self};
@@ -88,6 +89,29 @@ fn main() {
                 .value_parser(clap::value_parser!(String))
                 .help("File delimiter")
             )
+        )
+        .subcommand(
+            clap::Command::new("filter")
+            .about("Filter a methylation array dataset to include only specified probes")
+            .arg(Arg::new("methdata_filter")
+                .help("A gzipped tsv with methylation data where first column has probe names, all other columns are samples. Must have header line")
+                .required(false)
+            )
+            .arg(
+                Arg::new("probe_file")
+                .short('p')
+                .long("probes")
+                .help("A plain text file with 1 probe identifier per line. No header")
+                .required(true)
+            )
+            .arg(
+                Arg::new("delim_filter")
+                .short('d')
+                .long("delim")
+                .default_value("\t")
+                .value_parser(clap::value_parser!(String))
+                .help("File delimiter")
+            )
             
         )
         .about("Pick the most variable probes from a methylation dataset")
@@ -110,6 +134,21 @@ fn main() {
         
         print_selected_samples(reader, samples)
      }    
+    // subcommand: FILTER
+    else if let Some(matches) = matches.subcommand_matches("filter") { 
+        let delim = matches
+        .get_one::<String>("delim_filter")
+        .expect("Valid file delimiter")
+        .as_bytes()[0];
+
+
+        let methdata_path_option = matches.get_one::<String>("methdata_filter");
+        let probe_path = matches.get_one::<String>("probe_file").expect("Probe Path");
+
+        let reader: csv::Reader<Box<dyn Read>> = get_reader_from_stdin_or_file( methdata_path_option, delim);
+        let probes: Vec<String> = get_selected_samples(probe_path.to_string());
+        print_filter_selected_probes(reader, probes);
+    }
      // subcommand: IDENTIFY 
      else if let Some(matches) = matches.subcommand_matches("identify") { 
         let delim = matches
@@ -193,6 +232,7 @@ fn print_probe_vector(probes: &Vec<Probe>, probenames_only: bool) {
 
 fn gzip_csv_to_reader(path: &String) -> io::BufReader<flate2::read::GzDecoder<std::fs::File>> {
     // Open File
+
     let file_result = std::fs::File::open(path);
     let file = match file_result {
         Ok(val) => val,
@@ -373,4 +413,36 @@ fn print_selected_samples(mut reader:csv::Reader<Box<dyn Read>>, samples:Vec<Str
         let filtered_record: Vec<_> = sample_indices.iter().map(|&i| &record[i]).collect();
         println!("{}\t{}", record.get(0).expect("first column"), filtered_record.join("\t"));
     }
+}
+
+
+fn print_filter_selected_probes(mut reader:csv::Reader<Box<dyn Read>>, probes:Vec<String>){
+
+    let n_probes_searched_for = probes.len();
+    let mut n_probes_found = 0;
+    let header  = reader.headers().expect("Header as string record");
+
+    print_tab_separated(header);
+    for result in reader.records(){
+        let record = result.expect("Failed to read result");
+        let probename = record.get(0).expect("Probe name as string slice");
+        if probes.contains(&probename.to_string()){
+            print_tab_separated(&record);
+            n_probes_found +=1;
+        }
+        if n_probes_found == n_probes_searched_for{
+            break;
+        }
+    }
+
+    // Summarise Results
+    eprint_hr();
+    eprintln!("{}/{} ({:.1}%) of selected probes were found in the methylation dataset", n_probes_found, n_probes_searched_for, n_probes_found as f64 / n_probes_searched_for as f64 * 100.0
+    );
+    eprint_hr();
+}
+
+fn print_tab_separated(record: &StringRecord) {
+    let tab_separated = record.iter().collect::<Vec<&str>>().join("\t");
+    println!("{}", tab_separated);
 }

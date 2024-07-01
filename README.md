@@ -25,6 +25,9 @@ gzip -dc example.tsv.gz | ./probepicker identify --delim "\t" --nprobes 10
 
 # Select a subset of samples and identify the most variable probes on this subset
 gzip -dc example.tsv.gz | ./probepicker select --samples samples.txt | ./probepicker identify > probes.txt
+
+# Select the samples of interest and filter for the most interesting probes
+./probepicker select --samples samples.txt | ./probepicker filter --probes probes.txt
 ```
 
 
